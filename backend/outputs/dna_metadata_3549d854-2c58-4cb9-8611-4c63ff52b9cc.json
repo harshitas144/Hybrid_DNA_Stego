@@ -1,0 +1,15 @@
+{
+  "data_bits_length": 38904,
+  "corrected_bits_length": 68082,
+  "dna_sequence_length": 34041,
+  "original_payload_length": 4863,
+  "method": "dna",
+  "error_correction": "hamming",
+  "image_file": "outputs/dna_stego_3549d854-2c58-4cb9-8611-4c63ff52b9cc.png",
+  "session_id": "3549d854-2c58-4cb9-8611-4c63ff52b9cc",
+  "secret_filename": "dna_hybrid_steg_app.tsx",
+  "secret_size": 23681,
+  "secret_extension": ".tsx",
+  "timestamp": "2025-07-18T11:30:14.205374",
+  "password_protected": true
+}

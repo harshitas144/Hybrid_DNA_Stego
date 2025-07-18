@@ -1,0 +1,15 @@
+{
+  "data_bits_length": 353928,
+  "corrected_bits_length": 619374,
+  "dna_sequence_length": 309687,
+  "original_payload_length": 44241,
+  "method": "dna",
+  "error_correction": "hamming",
+  "image_file": "outputs/dna_stego_e916ca33-c8f2-4c73-866d-da560e9759d8.png",
+  "session_id": "e916ca33-c8f2-4c73-866d-da560e9759d8",
+  "secret_filename": "Harshita_S_resume.pdf",
+  "secret_size": 45846,
+  "secret_extension": ".pdf",
+  "timestamp": "2025-07-18T11:03:31.151172",
+  "password_protected": true
+}

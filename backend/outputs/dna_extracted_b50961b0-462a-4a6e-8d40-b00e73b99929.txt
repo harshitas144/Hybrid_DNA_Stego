@@ -1,0 +1,593 @@
+import React, { useState, useRef, useCallback } from 'react';
+import { Upload, Download, Lock, Unlock, Image, FileText, AlertCircle, CheckCircle, Info, Eye, EyeOff, Settings, Activity, Trash2, FileDown } from 'lucide-react';
+
+const DNAHybridStegApp = () => {
+  const [activeTab, setActiveTab] = useState('embed');
+  const [embedData, setEmbedData] = useState({
+    image: null,
+    secret: null,
+    password: '',
+    useDWT: false,
+    showPassword: false
+  });
+  const [extractData, setExtractData] = useState({
+    stegoImage: null,
+    password: '',
+    metadata: null,
+    showPassword: false
+  });
+  const [results, setResults] = useState({});
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
+  const [capacityInfo, setCapacityInfo] = useState(null);
+  const [compatibility, setCompatibility] = useState(null);
+
+  const imageInputRef = useRef(null);
+  const secretInputRef = useRef(null);
+  const stegoInputRef = useRef(null);
+
+  const API_BASE = 'http://localhost:5000/api';
+
+  const handleFileUpload = useCallback((file, type, tab = 'embed') => {
+    if (tab === 'embed') {
+      setEmbedData(prev => ({ ...prev, [type]: file }));
+    } else {
+      setExtractData(prev => ({ ...prev, [type]: file }));
+    }
+    
+    // Auto-check capacity when image is uploaded
+    if (type === 'image' && tab === 'embed') {
+      checkCapacity(file, embedData.useDWT);
+    }
+    
+    // Auto-check compatibility when both files are present
+    if (tab === 'embed' && type === 'secret' && embedData.image) {
+      checkCompatibility(embedData.image, file, embedData.useDWT);
+    }
+  }, [embedData.image, embedData.useDWT]);
+
+  const checkCapacity = async (imageFile, useDWT) => {
+    if (!imageFile) return;
+    
+    const formData = new FormData();
+    formData.append('image', imageFile);
+    formData.append('use_dwt', useDWT.toString());
+    
+    try {
+      const response = await fetch(`${API_BASE}/check-capacity`, {
+        method: 'POST',
+        body: formData
+      });
+      
+      const data = await response.json();
+      if (response.ok) {
+        setCapacityInfo(data);
+      } else {
+        setError(data.error || 'Failed to check capacity');
+      }
+    } catch (err) {
+      setError('Network error while checking capacity');
+    }
+  };
+
+  const checkCompatibility = async (imageFile, secretFile, useDWT) => {
+    if (!imageFile || !secretFile) return;
+    
+    const formData = new FormData();
+    formData.append('image', imageFile);
+    formData.append('secret', secretFile);
+    formData.append('use_dwt', useDWT.toString());
+    
+    try {
+      const response = await fetch(`${API_BASE}/check-compatibility`, {
+        method: 'POST',
+        body: formData
+      });
+      
+      const data = await response.json();
+      if (response.ok) {
+        setCompatibility(data);
+      } else {
+        setError(data.error || 'Failed to check compatibility');
+      }
+    } catch (err) {
+      setError('Network error while checking compatibility');
+    }
+  };
+
+  const handleEmbed = async () => {
+    if (!embedData.image || !embedData.secret || !embedData.password) {
+      setError('Please provide image, secret file, and password');
+      return;
+    }
+    
+    setLoading(true);
+    setError('');
+    setSuccess('');
+    
+    const formData = new FormData();
+    formData.append('image', embedData.image);
+    formData.append('secret', embedData.secret);
+    formData.append('password', embedData.password);
+    formData.append('use_dwt', embedData.useDWT.toString());
+    
+    try {
+      const response = await fetch(`${API_BASE}/embed`, {
+        method: 'POST',
+        body: formData
+      });
+      
+      const data = await response.json();
+      if (response.ok) {
+        setResults(prev => ({ ...prev, embed: data }));
+        setSuccess('Secret successfully embedded! You can now download the stego image.');
+      } else {
+        setError(data.error || 'Failed to embed secret');
+      }
+    } catch (err) {
+      setError('Network error during embedding');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleExtract = async () => {
+    if (!extractData.stegoImage || !extractData.password || !extractData.metadata) {
+      setError('Please provide stego image, password, and metadata');
+      return;
+    }
+    
+    setLoading(true);
+    setError('');
+    setSuccess('');
+    
+    const formData = new FormData();
+    formData.append('stego_image', extractData.stegoImage);
+    formData.append('password', extractData.password);
+    formData.append('metadata', JSON.stringify(extractData.metadata));
+    
+    try {
+      const response = await fetch(`${API_BASE}/extract`, {
+        method: 'POST',
+        body: formData
+      });
+      
+      const data = await response.json();
+      if (response.ok) {
+        setResults(prev => ({ ...prev, extract: data }));
+        setSuccess('Secret successfully extracted! You can now download the recovered file.');
+      } else {
+        setError(data.error || 'Failed to extract secret');
+      }
+    } catch (err) {
+      setError('Network error during extraction');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const downloadFile = async (sessionId, fileType) => {
+    try {
+      const response = await fetch(`${API_BASE}/download/${sessionId}/${fileType}`);
+      
+      if (response.ok) {
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${fileType}_${sessionId}`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        window.URL.revokeObjectURL(url);
+      } else {
+        const error = await response.json();
+        setError(error.error || 'Failed to download file');
+      }
+    } catch (err) {
+      setError('Network error during download');
+    }
+  };
+
+  const formatBytes = (bytes) => {
+    if (bytes === 0) return '0 Bytes';
+    const k = 1024;
+    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+  };
+
+  const FileUploadArea = ({ onFileSelect, accept, label, icon: Icon, file }) => (
+    <div className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center hover:border-blue-500 transition-colors">
+      <div className="flex flex-col items-center space-y-4">
+        <Icon className="w-12 h-12 text-gray-400" />
+        <div>
+          <p className="text-lg font-medium text-gray-700">{label}</p>
+          {file && (
+            <p className="text-sm text-green-600 mt-2">
+              Selected: {file.name} ({formatBytes(file.size)})
+            </p>
+          )}
+        </div>
+        <input
+          type="file"
+          accept={accept}
+          onChange={(e) => onFileSelect(e.target.files[0])}
+          className="hidden"
+          id={`file-${label.replace(/\s+/g, '-').toLowerCase()}`}
+        />
+        <label
+          htmlFor={`file-${label.replace(/\s+/g, '-').toLowerCase()}`}
+          className="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 cursor-pointer transition-colors"
+        >
+          Choose File
+        </label>
+      </div>
+    </div>
+  );
+
+  const InfoPanel = ({ title, data, variant = 'info' }) => {
+    const bgColor = variant === 'success' ? 'bg-green-50 border-green-200' : 
+                   variant === 'warning' ? 'bg-yellow-50 border-yellow-200' : 
+                   'bg-blue-50 border-blue-200';
+    
+    return (
+      <div className={`rounded-lg p-4 border ${bgColor}`}>
+        <h3 className="font-semibold text-gray-800 mb-2">{title}</h3>
+        <div className="space-y-1 text-sm">
+          {Object.entries(data).map(([key, value]) => (
+            <div key={key} className="flex justify-between">
+              <span className="text-gray-600">{key}:</span>
+              <span className="font-medium">{value}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  };
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
+      <div className="container mx-auto px-4 py-8">
+        <div className="max-w-4xl mx-auto">
+          {/* Header */}
+          <div className="text-center mb-8">
+            <h1 className="text-4xl font-bold text-gray-800 mb-2">
+              DNA Hybrid Steganography
+            </h1>
+            <p className="text-gray-600">
+              Secure data hiding using advanced steganographic techniques
+            </p>
+          </div>
+
+          {/* Tab Navigation */}
+          <div className="flex space-x-1 mb-6">
+            <button
+              onClick={() => setActiveTab('embed')}
+              className={`flex-1 py-3 px-4 rounded-lg font-medium transition-colors ${
+                activeTab === 'embed'
+                  ? 'bg-blue-600 text-white'
+                  : 'bg-white text-gray-700 hover:bg-gray-50'
+              }`}
+            >
+              <Lock className="inline w-4 h-4 mr-2" />
+              Embed Secret
+            </button>
+            <button
+              onClick={() => setActiveTab('extract')}
+              className={`flex-1 py-3 px-4 rounded-lg font-medium transition-colors ${
+                activeTab === 'extract'
+                  ? 'bg-blue-600 text-white'
+                  : 'bg-white text-gray-700 hover:bg-gray-50'
+              }`}
+            >
+              <Unlock className="inline w-4 h-4 mr-2" />
+              Extract Secret
+            </button>
+          </div>
+
+          {/* Alert Messages */}
+          {error && (
+            <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg flex items-center">
+              <AlertCircle className="w-5 h-5 text-red-500 mr-3" />
+              <span className="text-red-700">{error}</span>
+              <button
+                onClick={() => setError('')}
+                className="ml-auto text-red-500 hover:text-red-700"
+              >
+                ×
+              </button>
+            </div>
+          )}
+
+          {success && (
+            <div className="mb-6 p-4 bg-green-50 border border-green-200 rounded-lg flex items-center">
+              <CheckCircle className="w-5 h-5 text-green-500 mr-3" />
+              <span className="text-green-700">{success}</span>
+              <button
+                onClick={() => setSuccess('')}
+                className="ml-auto text-green-500 hover:text-green-700"
+              >
+                ×
+              </button>
+            </div>
+          )}
+
+          {/* Main Content */}
+          <div className="bg-white rounded-xl shadow-lg p-6">
+            {activeTab === 'embed' && (
+              <div className="space-y-6">
+                <h2 className="text-2xl font-bold text-gray-800 mb-4">Embed Secret Data</h2>
+                
+                {/* File Upload Areas */}
+                <div className="grid md:grid-cols-2 gap-6">
+                  <FileUploadArea
+                    onFileSelect={(file) => handleFileUpload(file, 'image', 'embed')}
+                    accept="image/*"
+                    label="Cover Image"
+                    icon={Image}
+                    file={embedData.image}
+                  />
+                  <FileUploadArea
+                    onFileSelect={(file) => handleFileUpload(file, 'secret', 'embed')}
+                    accept="*"
+                    label="Secret File"
+                    icon={FileText}
+                    file={embedData.secret}
+                  />
+                </div>
+
+                {/* Settings */}
+                <div className="bg-gray-50 rounded-lg p-4">
+                  <h3 className="font-semibold text-gray-800 mb-3 flex items-center">
+                    <Settings className="w-5 h-5 mr-2" />
+                    Embedding Settings
+                  </h3>
+                  
+                  <div className="space-y-4">
+                    <div className="relative">
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Password
+                      </label>
+                      <div className="relative">
+                        <input
+                          type={embedData.showPassword ? 'text' : 'password'}
+                          value={embedData.password}
+                          onChange={(e) => setEmbedData(prev => ({ ...prev, password: e.target.value }))}
+                          className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent pr-10"
+                          placeholder="Enter encryption password"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setEmbedData(prev => ({ ...prev, showPassword: !prev.showPassword }))}
+                          className="absolute right-3 top-2.5 text-gray-500 hover:text-gray-700"
+                        >
+                          {embedData.showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center space-x-3">
+                      <input
+                        type="checkbox"
+                        id="use_dwt"
+                        checked={embedData.useDWT}
+                        onChange={(e) => {
+                          setEmbedData(prev => ({ ...prev, useDWT: e.target.checked }));
+                          if (embedData.image) {
+                            checkCapacity(embedData.image, e.target.checked);
+                          }
+                        }}
+                        className="h-5 w-5 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                      />
+                      <label htmlFor="use_dwt" className="text-sm font-medium text-gray-700">
+                        Use DWT (Discrete Wavelet Transform)
+                      </label>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Capacity Information */}
+                {capacityInfo && (
+                  <InfoPanel
+                    title="Image Capacity"
+                    data={{
+                      'Capacity': `${formatBytes(capacityInfo.capacity_bytes)} (${capacityInfo.capacity_bits} bits)`,
+                      'Image Size': `${capacityInfo.image_width} × ${capacityInfo.image_height}`,
+                      'Format': capacityInfo.image_format,
+                      'Method': capacityInfo.method
+                    }}
+                  />
+                )}
+
+                {/* Compatibility Check */}
+                {compatibility && (
+                  <InfoPanel
+                    title="Compatibility Check"
+                    data={{
+                      'Status': compatibility.compatible ? '✅ Compatible' : '❌ Not Compatible',
+                      'Secret Size': formatBytes(compatibility.secret_size),
+                      'File Type': compatibility.secret_extension,
+                      'Method': compatibility.method
+                    }}
+                    variant={compatibility.compatible ? 'success' : 'warning'}
+                  />
+                )}
+
+                {/* Embed Button */}
+                <button
+                  onClick={handleEmbed}
+                  disabled={loading || !embedData.image || !embedData.secret || !embedData.password}
+                  className="w-full bg-blue-600 text-white py-3 px-6 rounded-lg font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center space-x-2"
+                >
+                  {loading ? (
+                    <>
+                      <Activity className="w-5 h-5 animate-spin" />
+                      <span>Embedding...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Lock className="w-5 h-5" />
+                      <span>Embed Secret</span>
+                    </>
+                  )}
+                </button>
+
+                {/* Embed Results */}
+                {results.embed && (
+                  <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+                    <h3 className="font-semibold text-green-800 mb-3">Embedding Complete!</h3>
+                    <div className="space-y-3">
+                      <InfoPanel
+                        title="Embedding Metadata"
+                        data={{
+                          'Method': results.embed.metadata.method,
+                          'Original Size': formatBytes(results.embed.metadata.original_payload_length),
+                          'Encoded Bits': results.embed.metadata.corrected_bits_length,
+                          'Error Correction': results.embed.metadata.error_correction
+                        }}
+                        variant="success"
+                      />
+                      <div className="flex space-x-3">
+                        <button
+                          onClick={() => downloadFile(results.embed.session_id, 'stego')}
+                          className="flex-1 bg-green-600 text-white py-2 px-4 rounded-lg hover:bg-green-700 flex items-center justify-center space-x-2"
+                        >
+                          <Download className="w-4 h-4" />
+                          <span>Download Stego Image</span>
+                        </button>
+                        <button
+                          onClick={() => downloadFile(results.embed.session_id, 'metadata')}
+                          className="flex-1 bg-blue-600 text-white py-2 px-4 rounded-lg hover:bg-blue-700 flex items-center justify-center space-x-2"
+                        >
+                          <FileDown className="w-4 h-4" />
+                          <span>Download Metadata</span>
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {activeTab === 'extract' && (
+              <div className="space-y-6">
+                <h2 className="text-2xl font-bold text-gray-800 mb-4">Extract Secret Data</h2>
+                
+                {/* File Upload */}
+                <FileUploadArea
+                  onFileSelect={(file) => handleFileUpload(file, 'stegoImage', 'extract')}
+                  accept="image/*"
+                  label="Stego Image"
+                  icon={Image}
+                  file={extractData.stegoImage}
+                />
+
+                {/* Metadata Upload */}
+                <div className="bg-gray-50 rounded-lg p-4">
+                  <h3 className="font-semibold text-gray-800 mb-3">Metadata</h3>
+                  <div className="space-y-3">
+                    <input
+                      type="file"
+                      accept=".json"
+                      onChange={(e) => {
+                        const file = e.target.files[0];
+                        if (file) {
+                          const reader = new FileReader();
+                          reader.onload = (e) => {
+                            try {
+                              const metadata = JSON.parse(e.target.result);
+                              setExtractData(prev => ({ ...prev, metadata }));
+                            } catch (err) {
+                              setError('Invalid metadata file');
+                            }
+                          };
+                          reader.readAsText(file);
+                        }
+                      }}
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    />
+                    <p className="text-sm text-gray-600">
+                      Upload the metadata JSON file generated during embedding
+                    </p>
+                  </div>
+                </div>
+
+                {/* Password */}
+                <div className="relative">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Password
+                  </label>
+                  <div className="relative">
+                    <input
+                      type={extractData.showPassword ? 'text' : 'password'}
+                      value={extractData.password}
+                      onChange={(e) => setExtractData(prev => ({ ...prev, password: e.target.value }))}
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent pr-10"
+                      placeholder="Enter decryption password"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setExtractData(prev => ({ ...prev, showPassword: !prev.showPassword }))}
+                      className="absolute right-3 top-2.5 text-gray-500 hover:text-gray-700"
+                    >
+                      {extractData.showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                    </button>
+                  </div>
+                </div>
+
+                {/* Extract Button */}
+                <button
+                  onClick={handleExtract}
+                  disabled={loading || !extractData.stegoImage || !extractData.password || !extractData.metadata}
+                  className="w-full bg-blue-600 text-white py-3 px-6 rounded-lg font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center space-x-2"
+                >
+                  {loading ? (
+                    <>
+                      <Activity className="w-5 h-5 animate-spin" />
+                      <span>Extracting...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Unlock className="w-5 h-5" />
+                      <span>Extract Secret</span>
+                    </>
+                  )}
+                </button>
+
+                {/* Extract Results */}
+                {results.extract && (
+                  <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+                    <h3 className="font-semibold text-green-800 mb-3">Extraction Complete!</h3>
+                    <div className="space-y-3">
+                      <InfoPanel
+                        title="Extracted File Information"
+                        data={{
+                          'Original Filename': results.extract.original_filename,
+                          'Extracted Size': formatBytes(results.extract.extracted_size),
+                          'Detected Type': results.extract.detected_type,
+                          'Status': '✅ Successfully extracted'
+                        }}
+                        variant="success"
+                      />
+                      <button
+                        onClick={() => downloadFile(results.extract.session_id, 'extracted')}
+                        className="w-full bg-green-600 text-white py-2 px-4 rounded-lg hover:bg-green-700 flex items-center justify-center space-x-2"
+                      >
+                        <Download className="w-4 h-4" />
+                        <span>Download Extracted File</span>
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export default DNAHybridStegApp;
